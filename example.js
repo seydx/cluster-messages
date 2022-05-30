@@ -17,7 +17,7 @@ if (cluster.isMaster) {
   });
 
   /* Timeout to wait for workers to fork.
-  * This event is emitted from the master to all the workers. */
+   * This event is emitted from the master to all the workers. */
   setTimeout(() => {
     messages.send('getWorkerPID', (response) => {
       console.log(`Worker with ID #${response.id} has PID of ${response.pid}`);

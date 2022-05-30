@@ -8,9 +8,11 @@ class ClusterMessages {
     this.options = options || {};
 
     this.metaKey = this.options.metaKey || '__meta__';
-    this.callbackTimeout = this.options.callbackTimeout || 1000 * 60 * 10;
+    this.responseTimeout = this.options.responseTimeout || 1000 * 60 * 10;
+
     this.listeners = {};
     this.callbacks = {};
+    this.promises = new Map();
 
     this.initialise();
   }
@@ -22,7 +24,7 @@ class ClusterMessages {
     }
 
     /* Every message will have a meta data property, the name of this key is defined by
-    * `metaKey`, any event that does not have this property is ignored. */
+     * `metaKey`, any event that does not have this property is ignored. */
     const metaData = { eventName };
 
     if (cluster.isMaster) {
@@ -37,7 +39,7 @@ class ClusterMessages {
     };
 
     /* If the event being sent contains a function, generate a unique id
-    * and save the function to be called at a later date. */
+     * and save the function to be called at a later date. */
     if (typeof callback === 'function') {
       const id = uuid();
       this.callbacks[id] = callback;
@@ -48,9 +50,10 @@ class ClusterMessages {
        * delete the callback function after a set timeout to prevent permanent memory hogging. */
       setTimeout(() => {
         if (has.call(this.callbacks, id)) {
+          this.callbacks[id]('Timeout', null);
           delete this.callbacks[id];
         }
-      }, this.callbackTimeout);
+      }, this.responseTimeout);
     }
 
     if (cluster.isMaster) {
@@ -61,6 +64,50 @@ class ClusterMessages {
     } else {
       cluster.worker.send(message);
     }
+  }
+
+  sendAwait(eventName, data) {
+    /* Every message will have a meta data property, the name of this key is defined by
+     * `metaKey`, any event that does not have this property is ignored. */
+    const metaData = { eventName };
+
+    if (cluster.isMaster) {
+      metaData.fromMaster = true;
+    } else {
+      metaData.workerid = cluster.worker.id;
+    }
+
+    const message = {
+      [this.metaKey]: metaData,
+      data,
+    };
+
+    /* If the event being sent contains a function, generate a unique id
+     * and save the function to be called at a later date. */
+    return new Promise((resolve, reject) => {
+      const id = uuid();
+      this.promises.set(id, resolve);
+      message[this.metaKey].id = id;
+
+      /* This should not actually be needed, but to be 100% safe in case
+       * messages between the master and worker processes are lost,
+       * delete the callback function after a set timeout to prevent permanent memory hogging. */
+      setTimeout(() => {
+        if (this.promises.get(id)) {
+          this.promises.delete(id);
+          reject('Timeout');
+        }
+      }, this.responseTimeout);
+
+      if (cluster.isMaster) {
+        // eslint-disable-next-line
+        for (const id in cluster.workers) {
+          cluster.workers[id].send(message);
+        }
+      } else {
+        cluster.worker.send(message);
+      }
+    });
   }
 
   on(eventName, callback) {
@@ -117,10 +164,10 @@ class ClusterMessages {
     // Loop over all listeners that are set up and call them.
     this.listeners[eventName].forEach((callback, index, array) => {
       /* Callback is the actual event listener function `.on(name, callback)`, we call it
-      * for all `onMasterEvent` listeners.
-      *
-      * The callback function itself takes a callback parameter that allows the master
-      * to send back a response to the worker. */
+       * for all `onMasterEvent` listeners.
+       *
+       * The callback function itself takes a callback parameter that allows the master
+       * to send back a response to the worker. */
       callback(message.data, (response) => {
         // If there is no callback, don't do anything.
         if (!has.call(message[this.metaKey], 'id')) {
@@ -153,10 +200,10 @@ class ClusterMessages {
     // Loop over all listeners that are set up and call them.
     this.listeners[eventName].forEach((callback, index, array) => {
       /* Callback is the actual event listener function `.on(name, callback)`, we call it
-      * for all `onMasterEvent` listeners.
-      *
-      * The callback function itself takes a callback parameter that allows the master
-      * to send back a response to the worker. */
+       * for all `onMasterEvent` listeners.
+       *
+       * The callback function itself takes a callback parameter that allows the master
+       * to send back a response to the worker. */
       callback(message.data, (response) => {
         // If there is no callback, don't do anything.
         if (!has.call(message[this.metaKey], 'id')) {
@@ -192,15 +239,25 @@ class ClusterMessages {
   emitCallbacks(message) {
     const { id } = message[this.metaKey];
 
-    if (!has.call(this.callbacks, id)) {
+    if (has.call(this.callbacks, id)) {
+      const { response } = message[this.metaKey];
+
+      this.callbacks[id](null, response);
+
+      if (message[this.metaKey].deleteCallback) {
+        delete this.callbacks[id];
+      }
+    } else if (this.promises.get(id)) {
+      const { response } = message[this.metaKey];
+      const resolve = this.promises.get(id);
+
+      resolve(response);
+
+      if (message[this.metaKey].deleteCallback) {
+        this.promises.delete(id);
+      }
+    } else {
       return;
-    }
-
-    const { response } = message[this.metaKey];
-    this.callbacks[id](response);
-
-    if (message[this.metaKey].deleteCallback) {
-      delete this.callbacks[id];
     }
   }
 }

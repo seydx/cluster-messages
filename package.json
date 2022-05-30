@@ -1,14 +1,24 @@
 {
-  "name": "cluster-messages",
-  "version": "1.2.1",
+  "name": "@seydx/cluster-messages",
+  "version": "1.0.0",
   "description": "Easily send messages between workers and the master with callbacks.",
   "main": "index.js",
   "dependencies": {
-    "uuid4": "^1.1.4"
+    "uuid4": "^2.0.2"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@babel/core": "^7.18.2",
+    "@babel/eslint-parser": "^7.18.2",
+    "@babel/eslint-plugin": "^7.17.7",
+    "eslint": "^8.16.0",
+    "eslint-config-prettier": "^8.5.0",
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "prettier": "^2.6.2"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint --fix .",
+    "prepublishOnly": "npm i --package-lock-only && npm run lint"
   },
   "repository": {
     "type": "git",

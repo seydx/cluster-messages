@@ -1,6 +1,6 @@
 # cluster-messages
 A helpful Node module to make it easy to send messages between the
-master and workers with callbacks.
+master and workers with `callbacks` or `async/await`
 
 Events can be emitted by any process and received by any process.
 
@@ -12,7 +12,30 @@ let ClusterMessages = require('cluster-messages');
 let messages = new ClusterMessages();
 ```
 
-Setting up event listeners:
+## Async/Await
+
+Setting up event listeners :
+```javascript
+messages.on('multiplication', (data, sendResponse) => {
+  sendResponse(data.x * data.y);
+});
+```
+
+Emitting events:
+```javascript
+let data = {
+  x: Math.round(Math.random() * 100),
+  y: Math.round(Math.random() * 100),
+};
+
+const response = await messages.sendAwait('multiplication', data);
+
+console.log(`${data.x} * ${data.y} = ${response}`)
+```
+
+## Callback
+
+Setting up event listeners :
 ```javascript
 messages.on('multiplication', (data, sendResponse) => {
   sendResponse(data.x * data.y);
@@ -61,6 +84,28 @@ the callback will be invoked 3 times
 When sent from the worker:
 - the event is sent to the master only
 
+## .sendAwait(eventName, data)
+
+- **eventName** (string) - the name of the event being emitted
+- **data** (object) - the object passed to the event listener
+
+```javascript
+const response = await messages.send('print', { name: 'John' });
+
+console.log(response); // 'Hi John'
+```
+
+This function will emit an event. Inside the event listener only one parameter
+can be passed to `sendResponse` so it needs to be an object containing
+all the data.
+
+When sent from the master:
+- the event will get sent to all workers
+- the first worker which calls `sendResponse` will resolve the promise
+
+When sent from the worker:
+- the event is sent to the master only
+
 ## .on(eventName, callback)
 
 - **eventName** (string) - the name of the event to listen for
@@ -104,11 +149,11 @@ within `cluster` or `process`, the `metaKey` option allows you to define
 the name of the meta data property to ensure it does not conflict with
 your application.
 
-#### callbackTimeout
-When a callback is passed to `messages.send`, it is stored, but in the
+#### responseTimeout
+When a callback/promise is passed to `messages.send`, it is stored, but in the
 case that for some reason due to either Node or the OS that the message
-is dropped when being sent from one process to the other, the callback
-will never get deleted so the callback is automatically deleted after
+is dropped when being sent from one process to the other, the callback/promise
+will never get deleted so the callback/promise is automatically deleted after
 a set amount of time (default is 10 minutes). This option
 allows you to specify a timeout in milliseconds. This option is not
 really necessary at all, but the point of this logic is to prevent
